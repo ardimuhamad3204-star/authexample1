@@ -10,22 +10,55 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _firestore = FirebaseFirestore.instance;
-  final _dataController = TextEditingController();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  void _addData() async {
+  final TextEditingController namaController = TextEditingController();
+
+  final TextEditingController nimController = TextEditingController();
+
+  final TextEditingController statusController = TextEditingController();
+
+  String? selectedDocId;
+
+  Future<void> tambahAbsensi() async {
     final user = FirebaseAuth.instance.currentUser;
 
-    if (user != null && _dataController.text.isNotEmpty) {
-      await _firestore.collection('user_data').add({
-        'text': _dataController.text,
-        'createdAt': Timestamp.now(),
-        'userId': user.uid,
+    if (namaController.text.isEmpty ||
+        nimController.text.isEmpty ||
+        statusController.text.isEmpty) {
+      return;
+    }
+
+    if (selectedDocId == null) {
+      await _firestore.collection('absensi').add({
+        'namaMahasiswa': namaController.text,
+        'nim': nimController.text,
+        'status': statusController.text,
+        'userId': user!.uid,
         'userEmail': user.email,
+        'createdAt': Timestamp.now(),
+      });
+    } else {
+      await _firestore.collection('absensi').doc(selectedDocId).update({
+        'namaMahasiswa': namaController.text,
+        'nim': nimController.text,
+        'status': statusController.text,
       });
 
-      _dataController.clear();
+      selectedDocId = null;
     }
+
+    namaController.clear();
+    nimController.clear();
+    statusController.clear();
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Data berhasil disimpan')));
+  }
+
+  Future<void> hapusAbsensi(String docId) async {
+    await _firestore.collection('absensi').doc(docId).delete();
   }
 
   @override
@@ -34,111 +67,141 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Beranda & Data'),
+        title: const Text("Sistem Absensi Mahasiswa"),
         actions: [
           IconButton(
-            icon: const Icon(Icons.exit_to_app),
             onPressed: () {
               FirebaseAuth.instance.signOut();
             },
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             Text(
-              'Selamat datang, ${user?.email ?? 'Pengguna'}!',
+              "Selamat Datang ${user?.email}",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
 
             const SizedBox(height: 20),
 
             TextField(
-              controller: _dataController,
+              controller: namaController,
               decoration: const InputDecoration(
-                labelText: 'Masukkan data baru',
+                labelText: "Nama Mahasiswa",
                 border: OutlineInputBorder(),
               ),
             ),
 
             const SizedBox(height: 10),
 
-            ElevatedButton(
-              onPressed: _addData,
-              child: const Text('Simpan Data'),
+            TextField(
+              controller: nimController,
+              decoration: const InputDecoration(
+                labelText: "NIM",
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            TextField(
+              controller: statusController,
+              decoration: const InputDecoration(
+                labelText: "Status Kehadiran",
+                hintText: "Hadir / Izin / Sakit",
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 15),
+
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: tambahAbsensi,
+                child: Text(
+                  selectedDocId == null ? "Simpan Absensi" : "Update Absensi",
+                ),
+              ),
             ),
 
             const SizedBox(height: 20),
 
             const Text(
-              'Data Tersimpan:',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              "Daftar Absensi",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
+
+            const SizedBox(height: 10),
 
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: _firestore
-                    .collection('user_data')
-                    .where(
-                      'userId',
-                      isEqualTo: user?.uid,
-                    )
-                    .orderBy(
-                      'createdAt',
-                      descending: true,
-                    )
+                    .collection('absensi')
+                    .where('userId', isEqualTo: user?.uid)
+                    .orderBy('createdAt', descending: true)
                     .snapshots(),
-                builder: (ctx, snapshot) {
-                  if (snapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
                   }
 
                   if (snapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'Error: ${snapshot.error}',
-                      ),
-                    );
+                    return Center(child: Text(snapshot.error.toString()));
                   }
 
-                  if (!snapshot.hasData ||
-                      snapshot.data!.docs.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        'Belum ada data.',
-                      ),
-                    );
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return const Center(child: Text("Belum ada data absensi"));
                   }
 
                   final docs = snapshot.data!.docs;
 
                   return ListView.builder(
                     itemCount: docs.length,
-                    itemBuilder: (ctx, index) {
-                      final data =
-                          docs[index].data()
-                              as Map<String, dynamic>;
+                    itemBuilder: (context, index) {
+                      final doc = docs[index];
+
+                      final data = doc.data() as Map<String, dynamic>;
 
                       return Card(
-                        margin: const EdgeInsets.symmetric(
-                          vertical: 5,
-                        ),
                         child: ListTile(
-                          title: Text(data['text']),
+                          leading: const Icon(Icons.person),
+                          title: Text(data['namaMahasiswa']),
                           subtitle: Text(
-                            data['userEmail'] +
-                                ' - ' +
-                                (data['createdAt']
-                                        as Timestamp)
-                                    .toDate()
-                                    .toString(),
+                            "NIM : ${data['nim']}\nStatus : ${data['status']}",
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.blue,
+                                ),
+                                onPressed: () {
+                                  namaController.text = data['namaMahasiswa'];
+
+                                  nimController.text = data['nim'];
+
+                                  statusController.text = data['status'];
+
+                                  selectedDocId = doc.id;
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () async {
+                                  await hapusAbsensi(doc.id);
+                                },
+                              ),
+                            ],
                           ),
                         ),
                       );
